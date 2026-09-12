@@ -18,6 +18,6 @@
     "baseUrl": ".",
     "paths": { "@shared/*": ["shared/*"] }
   },
-  "include": ["src", "shared", "vite.config.ts"],
-  "exclude": ["functions", "dist"]
+  "include": ["src", "shared", "site", "vite.config.ts", "vite.site.config.ts"],
+  "exclude": ["functions", "dist", "dist-site"]
 }

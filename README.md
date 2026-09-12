@@ -4,6 +4,9 @@ A Chrome extension (Manifest V3) that keeps distracting sites closed until a
 child's parent-assigned tasks are done **and approved**, wrapped in a points,
 streak and badge system that makes finishing them feel worth it.
 
+**[Live demo →](https://khadejaahmedkz.github.io/hwguradian/)** — the extension's own
+React components running in a web page with mock data.
+
 Two surfaces, one extension:
 
 | Surface | Who | What it does |
@@ -41,6 +44,7 @@ for when the worker has been asleep.
 
 ```
 shared/        award logic, badge catalog, types — one copy, used by both sides
+site/          the GitHub Pages demo — imports the real popup components
 src/
   background/  MV3 service worker: sync, DNR rules, the active-tab check
   popup/       child view (React)
@@ -291,6 +295,7 @@ actually blocks, at the moment they add them.
 | `npm run dev` | Rebuild on change |
 | `npm run typecheck` | Types only |
 | `npm run test:awards` | Build functions, then check the streak/badge rules |
+| `npm run build:site` | Build the Pages demo site to `dist-site/` |
 | `npm run icons` | Regenerate the PNG icons |
 | `npm run deploy:rules` | Deploy Firestore rules + indexes |
 | `npm run deploy:functions` | Deploy Cloud Functions |

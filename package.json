@@ -7,6 +7,7 @@
   "scripts": {
     "dev": "vite build --watch --mode development",
     "build": "tsc --noEmit && vite build",
+    "build:site": "vite build --config vite.site.config.ts",
     "typecheck": "tsc --noEmit",
     "icons": "node scripts/make-icons.mjs",
     "emulators": "firebase emulators:start",
