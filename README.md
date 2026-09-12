@@ -230,7 +230,9 @@ event delivery cannot pay out twice.
 
 `shared/awards.ts` is the one copy of the streak and badge rules;
 `functions/scripts/sync-shared.mjs` mirrors it into the functions build so the
-two sides cannot drift.
+two sides cannot drift. `npm run test:awards` exercises that compiled copy —
+the exact code that runs on the server — across same-day repeats, missed days,
+comebacks, timezone-sensitive day boundaries and the early-bird cutoff.
 
 ### The PIN
 
@@ -288,6 +290,7 @@ actually blocks, at the moment they add them.
 | `npm run build` | Typecheck and build to `dist/` |
 | `npm run dev` | Rebuild on change |
 | `npm run typecheck` | Types only |
+| `npm run test:awards` | Build functions, then check the streak/badge rules |
 | `npm run icons` | Regenerate the PNG icons |
 | `npm run deploy:rules` | Deploy Firestore rules + indexes |
 | `npm run deploy:functions` | Deploy Cloud Functions |

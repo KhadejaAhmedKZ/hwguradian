@@ -1,8 +1,11 @@
 {
   "compilerOptions": {
     "target": "ES2022",
-    "module": "CommonJS",
-    "moduleResolution": "node",
+    // node16 resolution is required for the "exports" maps in
+    // firebase-admin and firebase-functions (e.g. firebase-admin/firestore).
+    // The package has no "type": "module", so this still emits CommonJS.
+    "module": "node16",
+    "moduleResolution": "node16",
     "lib": ["ES2022"],
     "outDir": "lib",
     "rootDir": "src",

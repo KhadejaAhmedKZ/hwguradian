@@ -2,7 +2,7 @@
   "name": "hwguradian",
   "private": true,
   "version": "1.0.0",
-  "description": "TaskGate / HW Guardian — a Chrome MV3 extension that gates distracting sites behind parent-approved tasks, with a gamified rewards system.",
+  "description": "TaskGate / HW Guardian \u2014 a Chrome MV3 extension that gates distracting sites behind parent-approved tasks, with a gamified rewards system.",
   "type": "module",
   "scripts": {
     "dev": "vite build --watch --mode development",
@@ -11,7 +11,8 @@
     "icons": "node scripts/make-icons.mjs",
     "emulators": "firebase emulators:start",
     "deploy:rules": "firebase deploy --only firestore:rules,firestore:indexes",
-    "deploy:functions": "firebase deploy --only functions"
+    "deploy:functions": "firebase deploy --only functions",
+    "test:awards": "npm --prefix functions run build && node scripts/check-awards.mjs"
   },
   "dependencies": {
     "firebase": "^11.6.0",
