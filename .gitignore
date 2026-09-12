@@ -1,0 +1,24 @@
+node_modules/
+dist/
+*.log
+
+# Secrets — never commit these.
+.env
+.env.local
+.env.*.local
+functions/.env
+functions/.env.local
+functions/.secret.local
+serviceAccountKey.json
+
+# Firebase local state
+.firebase/
+firebase-debug.log
+firestore-debug.log
+ui-debug.log
+
+# Generated: shared/ is copied into functions at build time (source of truth is /shared)
+functions/src/shared/
+functions/lib/
+
+.DS_Store

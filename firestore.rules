@@ -1,0 +1,196 @@
+rules_version = '2';
+
+// HW Guardian / TaskGate access rules.
+//
+// Two identities exist:
+//   * the PARENT  — an email/password account that owns exactly the households
+//                   whose `parentUid` equals their uid.
+//   * the CHILD   — an anonymous account linked, once, to exactly one child via
+//                   /childLinks/{uid}.
+//
+// The child identity is deliberately near-powerless. It can:
+//   - read its own household, its own tasks, its siblings' scoreboard rows,
+//     the badge list, the reward shop and its own redemptions;
+//   - flip one of its own tasks from 'pending' to 'pending_approval' and set
+//     the flaggedRecentBlockedActivity boolean on that same write;
+//   - create a redemption with status 'requested'.
+//
+// It can NEVER: set a task to 'approved', write any points/streak/badge field,
+// grant a redemption, change a task's point value, or touch another household.
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // ---- helpers --------------------------------------------------------
+
+    function signedIn() {
+      return request.auth != null;
+    }
+
+    function uid() {
+      return request.auth.uid;
+    }
+
+    function linkPath() {
+      return /databases/$(database)/documents/childLinks/$(uid());
+    }
+
+    function hasLink() {
+      return signedIn() && exists(linkPath());
+    }
+
+    function link() {
+      return get(linkPath()).data;
+    }
+
+    function isChildOfHousehold(hid) {
+      return hasLink() && link().householdId == hid;
+    }
+
+    function isChild(hid, cid) {
+      return isChildOfHousehold(hid) && link().childId == cid;
+    }
+
+    function isParent(hid) {
+      return signedIn()
+        && exists(/databases/$(database)/documents/households/$(hid))
+        && get(/databases/$(database)/documents/households/$(hid)).data.parentUid == uid();
+    }
+
+    function isMember(hid) {
+      return isParent(hid) || isChildOfHousehold(hid);
+    }
+
+    function changed() {
+      return request.resource.data.diff(resource.data).affectedKeys();
+    }
+
+    // ---- pairing --------------------------------------------------------
+
+    match /pairingCodes/{code} {
+      // A single-document read only; `list` is never allowed, so codes cannot
+      // be enumerated — you have to already know the code.
+      allow get: if signedIn();
+      allow list: if false;
+
+      allow create: if signedIn()
+        && isParent(request.resource.data.householdId)
+        && request.resource.data.usedBy == null;
+
+      // Claimed exactly once, by the account that is claiming it.
+      allow update: if signedIn()
+        && resource.data.usedBy == null
+        && request.time.toMillis() < resource.data.expiresAt
+        && changed().hasOnly(['usedBy', 'usedAt'])
+        && request.resource.data.usedBy == uid();
+
+      allow delete: if isParent(resource.data.householdId);
+    }
+
+    match /childLinks/{linkUid} {
+      allow get: if signedIn() && linkUid == uid();
+      allow list: if false;
+
+      // A device links itself only by presenting a valid, unused, unexpired code.
+      allow create: if signedIn()
+        && linkUid == uid()
+        && request.resource.data.keys().hasOnly(['householdId', 'childId', 'pairingCode', 'createdAt'])
+        && exists(/databases/$(database)/documents/pairingCodes/$(request.resource.data.pairingCode))
+        && get(/databases/$(database)/documents/pairingCodes/$(request.resource.data.pairingCode)).data.usedBy == null
+        && get(/databases/$(database)/documents/pairingCodes/$(request.resource.data.pairingCode)).data.expiresAt > request.time.toMillis()
+        && get(/databases/$(database)/documents/pairingCodes/$(request.resource.data.pairingCode)).data.householdId == request.resource.data.householdId
+        && get(/databases/$(database)/documents/pairingCodes/$(request.resource.data.pairingCode)).data.childId == request.resource.data.childId;
+
+      // A link is permanent. Re-pairing means a new anonymous identity.
+      allow update: if false;
+      allow delete: if false;
+    }
+
+    // ---- households -----------------------------------------------------
+
+    match /households/{hid} {
+      allow get: if isMember(hid);
+      allow list: if signedIn() && resource.data.parentUid == uid();
+
+      allow create: if signedIn()
+        && request.resource.data.parentUid == uid()
+        && request.resource.data.blockedDomains is list;
+
+      allow update: if isParent(hid)
+        && request.resource.data.parentUid == resource.data.parentUid;
+
+      allow delete: if isParent(hid);
+
+      // ---- children -----------------------------------------------------
+      // Read is household-wide so siblings can appear on the leaderboard.
+      // Writes are parent-only: points, streaks and badges are never writable
+      // by a child, and the Cloud Functions use the Admin SDK, which bypasses
+      // these rules entirely.
+      match /children/{cid} {
+        allow read: if isMember(hid);
+        allow create, update, delete: if isParent(hid);
+
+        match /badges/{badgeKey} {
+          allow read: if isMember(hid);
+          allow write: if false; // awarded only by the onTaskApproved function
+        }
+      }
+
+      // ---- tasks --------------------------------------------------------
+      match /tasks/{tid} {
+        allow read: if isMember(hid);
+        allow create, delete: if isParent(hid);
+
+        allow update: if
+          // Parent: anything except forging the server-written credit marker.
+          (isParent(hid) && !changed().hasAny(['pointsCredited']))
+          ||
+          // Child: exactly one transition, on their own task, and nothing else.
+          (
+            isChild(hid, resource.data.childId)
+            && resource.data.status == 'pending'
+            && request.resource.data.status == 'pending_approval'
+            && changed().hasOnly(['status', 'flaggedRecentBlockedActivity', 'submittedAt'])
+            && request.resource.data.flaggedRecentBlockedActivity is bool
+            && request.resource.data.pointsValue == resource.data.pointsValue
+            && request.resource.data.childId == resource.data.childId
+          );
+      }
+
+      // ---- reward shop ---------------------------------------------------
+      match /rewards/{rid} {
+        allow read: if isMember(hid);
+        allow create, update, delete: if isParent(hid);
+      }
+
+      match /redemptions/{redemptionId} {
+        allow read: if isMember(hid);
+
+        allow create: if isParent(hid)
+          || (
+            isChild(hid, request.resource.data.childId)
+            && request.resource.data.status == 'requested'
+            && request.resource.data.grantedAt == null
+            && request.resource.data.pointCost is int
+            && request.resource.data.pointCost >= 0
+            && request.resource.data.keys().hasOnly([
+                 'childId', 'rewardId', 'rewardTitle', 'pointCost',
+                 'status', 'requestedAt', 'grantedAt'
+               ])
+            // The cost must match the live shop price — no discounts.
+            && exists(/databases/$(database)/documents/households/$(hid)/rewards/$(request.resource.data.rewardId))
+            && get(/databases/$(database)/documents/households/$(hid)/rewards/$(request.resource.data.rewardId)).data.pointCost == request.resource.data.pointCost
+            && get(/databases/$(database)/documents/households/$(hid)/rewards/$(request.resource.data.rewardId)).data.active == true
+          );
+
+        // Granting is a parent action, full stop.
+        allow update, delete: if isParent(hid);
+      }
+    }
+
+    // Anything not matched above is denied.
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}

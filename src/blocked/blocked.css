@@ -1,0 +1,41 @@
+body {
+  min-height: 100vh;
+  background: radial-gradient(1200px 600px at 50% -10%, #e9eaff 0%, var(--bg) 60%);
+}
+@media (prefers-color-scheme: dark) {
+  body { background: radial-gradient(1200px 600px at 50% -10%, #23264a 0%, var(--bg) 60%); }
+}
+
+.blocked-wrap {
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 14px;
+  padding: 32px 20px;
+}
+
+.blocked-card { width: min(520px, 100%); padding: 32px; text-align: center; }
+.blocked-emoji { font-size: 46px; }
+.blocked-card h1 { font-size: 26px; margin: 10px 0 6px; }
+.blocked-line { color: var(--text-dim); margin: 0 0 22px; font-size: 15px; }
+
+.blocked-subtitle {
+  font-size: 11px; text-transform: uppercase; letter-spacing: 0.08em;
+  color: var(--text-dim); text-align: left; margin: 18px 0 8px;
+}
+
+.blocked-tasks { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 7px; }
+.blocked-task {
+  display: flex; align-items: center; gap: 10px; text-align: left;
+  padding: 12px 14px; border-radius: var(--radius-sm);
+  background: var(--surface-2); font-weight: 600; font-size: 14px;
+}
+.blocked-task.waiting { background: var(--warm-soft); color: #92400e; }
+
+.blocked-footer {
+  margin-top: 24px; display: flex; align-items: center;
+  justify-content: space-between; gap: 12px; flex-wrap: wrap;
+}
+.blocked-hint { text-align: center; }
