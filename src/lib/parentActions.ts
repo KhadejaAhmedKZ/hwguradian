@@ -23,7 +23,10 @@ import {
   taskDoc,
   tasksCol,
 } from './paths';
-import type { LeaderboardMetric } from '@shared/types';
+import { httpsCallable } from 'firebase/functions';
+import { parentFunctions } from '../firebase';
+import { choreDoc, choresCol } from './paths';
+import type { Chore, GatePolicy, LeaderboardMetric } from '@shared/types';
 
 const PAIRING_CODE_TTL_MS = 24 * 60 * 60 * 1000;
 const CODE_ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'; // no O/0/I/1
@@ -35,6 +38,10 @@ export async function createHousehold(name: string, parentUid: string): Promise<
     blockedDomains: [],
     leaderboardMetric: 'points' as LeaderboardMetric,
     timezone: Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC',
+    // Strict by default: nothing reopens the gate but a parent.
+    gatePolicy: 'parent_only' as GatePolicy,
+    // Opt-in: no screen time is recorded until a parent turns it on.
+    screenTimeEnabled: false,
     createdAt: Date.now(),
   });
   return ref.id;
@@ -78,6 +85,7 @@ export async function createTask(
   childId: string,
   title: string,
   pointsValue: number,
+  requiresEvidence = false,
 ): Promise<void> {
   await addDoc(tasksCol(parentDb(), hid), {
     childId,
@@ -89,7 +97,49 @@ export async function createTask(
     approvedAt: null,
     flaggedRecentBlockedActivity: false,
     pointsCredited: false,
+    choreId: null,
+    evidence: null,
+    agentVerdict: null,
+    verifyAttempts: 0,
+    requiresEvidence,
   });
+}
+
+// ---------------------------------------------------------------------------
+// Chores
+// ---------------------------------------------------------------------------
+
+export type ChoreDraft = Omit<Chore, 'id' | 'rotationIndex' | 'lastGeneratedDate' | 'createdAt'>;
+
+export async function createChore(hid: string, draft: ChoreDraft): Promise<void> {
+  await addDoc(choresCol(parentDb(), hid), {
+    ...draft,
+    rotationIndex: 0,
+    lastGeneratedDate: null,
+    createdAt: Date.now(),
+  });
+}
+
+export async function updateChore(
+  hid: string,
+  choreId: string,
+  patch: Partial<ChoreDraft>,
+): Promise<void> {
+  await updateDoc(choreDoc(parentDb(), hid, choreId), patch);
+}
+
+export async function deleteChore(hid: string, choreId: string): Promise<void> {
+  await deleteDoc(choreDoc(parentDb(), hid, choreId));
+}
+
+/** Ask the server to turn today's due chores into tasks. Safe to call twice. */
+export async function syncChoresNow(hid: string): Promise<number> {
+  const callable = httpsCallable<{ householdId: string }, { created: number }>(
+    parentFunctions(),
+    'syncChores',
+  );
+  const result = await callable({ householdId: hid });
+  return result.data.created;
 }
 
 export async function deleteTask(hid: string, tid: string): Promise<void> {
@@ -155,6 +205,14 @@ export async function setBlockedDomains(hid: string, domains: string[]): Promise
 
 export async function setLeaderboardMetric(hid: string, metric: LeaderboardMetric): Promise<void> {
   await updateDoc(householdDoc(parentDb(), hid), { leaderboardMetric: metric });
+}
+
+export async function setGatePolicy(hid: string, gatePolicy: GatePolicy): Promise<void> {
+  await updateDoc(householdDoc(parentDb(), hid), { gatePolicy });
+}
+
+export async function setScreenTimeEnabled(hid: string, enabled: boolean): Promise<void> {
+  await updateDoc(householdDoc(parentDb(), hid), { screenTimeEnabled: enabled });
 }
 
 export async function householdExists(hid: string): Promise<boolean> {

@@ -1,9 +1,9 @@
 body {
   min-height: 100vh;
-  background: radial-gradient(1200px 600px at 50% -10%, #e9eaff 0%, var(--bg) 60%);
-}
-@media (prefers-color-scheme: dark) {
-  body { background: radial-gradient(1200px 600px at 50% -10%, #23264a 0%, var(--bg) 60%); }
+  background:
+    radial-gradient(900px 460px at 12% -8%, #ffe9c7 0%, transparent 62%),
+    radial-gradient(900px 520px at 88% 4%, #dbeeff 0%, transparent 60%),
+    var(--bg);
 }
 
 .blocked-wrap {
@@ -32,7 +32,7 @@ body {
   padding: 12px 14px; border-radius: var(--radius-sm);
   background: var(--surface-2); font-weight: 600; font-size: 14px;
 }
-.blocked-task.waiting { background: var(--warm-soft); color: #92400e; }
+.blocked-task.waiting { background: var(--warm-soft); color: var(--warm-ink); }
 
 .blocked-footer {
   margin-top: 24px; display: flex; align-items: center;

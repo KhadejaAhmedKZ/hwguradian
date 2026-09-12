@@ -134,6 +134,19 @@ service cloud.firestore {
           allow read: if isMember(hid);
           allow write: if false; // awarded only by the onTaskApproved function
         }
+
+        // Screen time. Seconds per domain for one day — no URLs, no titles, no
+        // page content. Written by the child's own device (that is the only
+        // place the measurement exists) and read by the parent.
+        match /usage/{day} {
+          allow read: if isMember(hid);
+          allow create, update: if isChild(hid, cid)
+            && request.resource.data.keys().hasOnly(['day', 'domains', 'totalSeconds', 'updatedAt'])
+            && request.resource.data.domains is map
+            && request.resource.data.totalSeconds is number
+            && request.resource.data.totalSeconds >= 0;
+          allow delete: if isParent(hid);
+        }
       }
 
       // ---- tasks --------------------------------------------------------
@@ -142,8 +155,9 @@ service cloud.firestore {
         allow create, delete: if isParent(hid);
 
         allow update: if
-          // Parent: anything except forging the server-written credit marker.
-          (isParent(hid) && !changed().hasAny(['pointsCredited']))
+          // Parent: anything except the fields only the server may author —
+          // the credit marker and the verifier agent's verdict.
+          (isParent(hid) && !changed().hasAny(['pointsCredited', 'agentVerdict', 'verifyAttempts', 'evidence']))
           ||
           // Child: exactly one transition, on their own task, and nothing else.
           (
@@ -155,6 +169,14 @@ service cloud.firestore {
             && request.resource.data.pointsValue == resource.data.pointsValue
             && request.resource.data.childId == resource.data.childId
           );
+      }
+
+      // ---- chores --------------------------------------------------------
+      // Templates only. The child never edits them; the syncChores function
+      // turns the due ones into tasks using the Admin SDK.
+      match /chores/{choreId} {
+        allow read: if isMember(hid);
+        allow create, update, delete: if isParent(hid);
       }
 
       // ---- reward shop ---------------------------------------------------

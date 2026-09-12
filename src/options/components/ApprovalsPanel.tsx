@@ -59,6 +59,32 @@ export function ApprovalsPanel({
               </div>
             </div>
 
+            {task.evidence && (
+              <div className="evidence-quote">
+                <div className="who">{child?.name ?? 'They'} wrote</div>
+                {task.evidence}
+              </div>
+            )}
+
+            {task.agentVerdict && (
+              <div className={`verdict-line ${task.agentVerdict.state}`}>
+                <span aria-hidden="true">
+                  {task.agentVerdict.state === 'pass'
+                    ? '🤖'
+                    : task.agentVerdict.state === 'needs_more'
+                      ? '💬'
+                      : '🤔'}
+                </span>
+                <div>
+                  <strong>Verifier agent:</strong> {task.agentVerdict.reason}
+                  <div className="tiny muted" style={{ marginTop: 3 }}>
+                    It read the note above, not the room — it cannot confirm the chore actually
+                    happened. Points are still yours to give.
+                  </div>
+                </div>
+              </div>
+            )}
+
             {task.flaggedRecentBlockedActivity && (
               <div className="heads-up">
                 <span aria-hidden="true">👀</span>

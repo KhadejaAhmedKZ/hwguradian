@@ -1,7 +1,8 @@
 import { useEffect, useState } from 'react';
 import { getCachedState, type CachedState } from '../lib/storage';
 import { childFunctions } from '../firebase';
-import { assist, FALLBACK_ENCOURAGEMENT } from '../lib/gemini';
+import { runTextAgent } from '../lib/agents';
+import { FALLBACK_ENCOURAGEMENT } from '../lib/gemini';
 import { isFirebaseConfigured } from '../config';
 
 /**
@@ -33,8 +34,8 @@ export function Blocked() {
         return;
       }
       try {
-        const result = await assist(childFunctions(), { kind: 'encourage' });
-        const text = result.lines[0] ?? fallback;
+        const lines = await runTextAgent(childFunctions(), 'coach', {});
+        const text = lines[0] ?? fallback;
         if (!cancelled) setLine(text);
         await chrome.storage.local.set({ encouragement: { day: today, text } });
       } catch {

@@ -79,3 +79,84 @@ code { background: var(--surface-2); padding: 1px 5px; border-radius: 5px; font-
   animation: spin 0.8s linear infinite;
 }
 @keyframes spin { to { transform: rotate(360deg); } }
+
+/* --- charts ------------------------------------------------------------- */
+.chart-wrap { position: relative; }
+.chart { width: 100%; height: auto; display: block; overflow: visible; }
+.gridline { stroke: var(--grid); stroke-width: 1; }
+.axis-text { fill: var(--text-dim); font-size: 11px; font-family: var(--font); }
+.value-label { fill: var(--text); font-size: 11px; font-weight: 700; font-family: var(--font); }
+.col { fill: var(--brand); transition: fill 0.12s ease; }
+.col.hot { fill: var(--brand-dark); }
+
+.chart-tip {
+  position: absolute; top: 0; transform: translateX(-50%);
+  background: var(--surface); border: 1.5px solid var(--border);
+  border-radius: var(--radius-sm); box-shadow: var(--shadow-lift);
+  padding: 6px 10px; font-size: 12px; pointer-events: none;
+  display: flex; flex-direction: column; gap: 1px; white-space: nowrap;
+}
+
+.cat-bar { display: flex; gap: 2px; height: 26px; margin: 4px 0 14px; }
+.cat-seg { border-radius: 3px; min-width: 3px; }
+.cat-legend { list-style: none; margin: 0; padding: 0; display: grid; gap: 7px; }
+.cat-legend li { display: flex; align-items: center; gap: 9px; font-size: 13px; }
+.swatch { width: 11px; height: 11px; border-radius: 3px; flex: none; }
+.cat-value { font-weight: 700; font-variant-numeric: tabular-nums; }
+.cat-pct { font-size: 12px; width: 34px; text-align: right; font-variant-numeric: tabular-nums; }
+
+.site-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 9px; }
+.site-list li { display: flex; align-items: center; gap: 11px; font-size: 13px; }
+.site-name { width: 152px; flex: none; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.site-track { flex: 1; height: 9px; border-radius: 999px; background: var(--surface-2); overflow: hidden; }
+.site-fill { display: block; height: 100%; border-radius: 999px; background: var(--brand); }
+.site-value { width: 62px; text-align: right; font-weight: 700; font-variant-numeric: tabular-nums; }
+
+.stat-tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 12px; }
+.stat-tile { padding: 15px 17px; }
+.stat-tile .big { font-size: 25px; font-weight: 750; letter-spacing: -0.02em; }
+.stat-tile .lbl {
+  font-size: 11px; text-transform: uppercase; letter-spacing: 0.06em;
+  color: var(--text-dim); margin-top: 2px;
+}
+
+.grid-two { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+@media (max-width: 760px) { .grid-two { grid-template-columns: 1fr; } }
+
+.check-line { display: flex; align-items: center; gap: 9px; font-size: 13px; color: var(--text); font-weight: 500; margin: 0; }
+.check-line input { width: auto; }
+
+.chore-row { align-items: flex-start; }
+.chore-meta { display: block; margin-top: 3px; }
+
+.evidence-quote {
+  margin-top: 12px; padding: 12px 14px; border-radius: var(--radius-sm);
+  background: var(--surface-2); font-size: 13px; line-height: 1.5;
+}
+.evidence-quote .who {
+  font-size: 11px; text-transform: uppercase; letter-spacing: 0.06em;
+  color: var(--text-dim); margin-bottom: 5px;
+}
+.verdict-line {
+  display: flex; gap: 9px; align-items: flex-start; margin-top: 10px;
+  padding: 11px 13px; border-radius: var(--radius-sm); font-size: 13px; line-height: 1.5;
+}
+.verdict-line.pass { background: var(--good-soft); }
+.verdict-line.needs_more { background: var(--sky-soft); }
+.verdict-line.unclear { background: var(--surface-2); }
+
+.policy-choice { display: grid; grid-template-columns: 1fr 1fr; gap: 11px; }
+@media (max-width: 700px) { .policy-choice { grid-template-columns: 1fr; } }
+.policy {
+  text-align: left; display: flex; flex-direction: column; gap: 5px;
+  padding: 15px 16px; border-radius: var(--radius);
+  background: var(--surface-2); color: var(--text);
+  border: 2px solid transparent;
+}
+.policy:hover:not(:disabled) { background: var(--surface-3); }
+.policy.on { background: var(--brand-soft); border-color: var(--brand); }
+.policy strong { font-size: 14px; }
+.policy span { font-size: 12.5px; line-height: 1.5; color: var(--text-dim); font-weight: 450; }
+
+.agent-row { align-items: flex-start; }
+.agent-icon { font-size: 19px; }

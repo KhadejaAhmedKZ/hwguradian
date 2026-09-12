@@ -124,3 +124,28 @@
 .tab:hover:not(:disabled) { background: var(--surface-2); }
 .tab.active { color: var(--brand); background: none; }
 .tab-label { font-size: 10px; font-weight: 650; }
+
+/* --- evidence + agent verdict ------------------------------------------ */
+.task { flex-direction: column; align-items: stretch; gap: 10px; }
+.task-row { display: flex; align-items: center; gap: 10px; }
+.task-pills { gap: 6px; flex-wrap: wrap; }
+.task.nudge { background: var(--sky-soft); border-color: transparent; }
+.task.passed { background: var(--good-soft); border-color: transparent; }
+
+.verdict {
+  display: flex; gap: 8px; align-items: flex-start;
+  font-size: 12.5px; line-height: 1.45;
+  padding: 10px 12px; border-radius: var(--radius-sm);
+  background: var(--surface); border: 1.5px solid var(--border);
+}
+.verdict.needs_more { border-color: var(--sky); }
+.verdict-follow { margin-top: 4px; font-weight: 650; }
+
+.evidence { display: flex; flex-direction: column; gap: 8px; }
+.evidence textarea { font-size: 13px; min-height: 66px; }
+
+.agent-note {
+  display: flex; gap: 7px; align-items: flex-start;
+  font-size: 11.5px; line-height: 1.45; color: var(--text-dim);
+  padding: 9px 11px; border-radius: var(--radius-sm); background: var(--surface-2);
+}

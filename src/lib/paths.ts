@@ -11,6 +11,16 @@ export const childDoc = (db: Firestore, hid: string, cid: string) =>
 export const childBadgesCol = (db: Firestore, hid: string, cid: string) =>
   collection(db, 'households', hid, 'children', cid, 'badges');
 
+export const usageCol = (db: Firestore, hid: string, cid: string) =>
+  collection(db, 'households', hid, 'children', cid, 'usage');
+export const usageDoc = (db: Firestore, hid: string, cid: string, day: string) =>
+  doc(db, 'households', hid, 'children', cid, 'usage', day);
+
+export const choresCol = (db: Firestore, hid: string) =>
+  collection(db, 'households', hid, 'chores');
+export const choreDoc = (db: Firestore, hid: string, choreId: string) =>
+  doc(db, 'households', hid, 'chores', choreId);
+
 export const tasksCol = (db: Firestore, hid: string) =>
   collection(db, 'households', hid, 'tasks');
 export const taskDoc = (db: Firestore, hid: string, tid: string) =>

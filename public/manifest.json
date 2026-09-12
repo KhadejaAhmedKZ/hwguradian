@@ -9,7 +9,8 @@
     "declarativeNetRequestWithHostAccess",
     "storage",
     "alarms",
-    "tabs"
+    "tabs",
+    "idle"
   ],
   "host_permissions": [
     "https://firestore.googleapis.com/*",

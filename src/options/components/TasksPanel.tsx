@@ -1,7 +1,8 @@
 import { useState } from 'react';
 import type { Child, Task } from '@shared/types';
 import { createTask, deleteTask } from '../../lib/parentActions';
-import { assist, FALLBACK_TASK_SUGGESTIONS } from '../../lib/gemini';
+import { runTextAgent } from '../../lib/agents';
+import { FALLBACK_TASK_SUGGESTIONS } from '../../lib/gemini';
 import { parentFunctions } from '../../firebase';
 import { DEFAULT_TASK_POINTS } from '../../config';
 
@@ -17,6 +18,7 @@ export function TasksPanel({
   const [childId, setChildId] = useState(childrenList[0]?.id ?? '');
   const [title, setTitle] = useState('');
   const [points, setPoints] = useState(String(DEFAULT_TASK_POINTS));
+  const [needsNote, setNeedsNote] = useState(false);
   const [suggestions, setSuggestions] = useState<string[]>([]);
   const [suggesting, setSuggesting] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -26,7 +28,7 @@ export function TasksPanel({
   const add = async () => {
     if (!title.trim() || !selected) return;
     const value = Math.max(1, Math.round(Number(points) || DEFAULT_TASK_POINTS));
-    await createTask(hid, selected.id, title.trim(), value);
+    await createTask(hid, selected.id, title.trim(), value, needsNote);
     setTitle('');
   };
 
@@ -34,14 +36,14 @@ export function TasksPanel({
     setSuggesting(true);
     setError(null);
     try {
-      const result = await assist(parentFunctions(), {
-        kind: 'suggest_tasks',
+      const lines = await runTextAgent(parentFunctions(), 'chore_planner', {
+        householdId: hid,
         prompt: `Child name: ${selected?.name ?? 'the child'}. Suggest homework and chore tasks.`,
       });
-      setSuggestions(result.lines.length ? result.lines : FALLBACK_TASK_SUGGESTIONS);
+      setSuggestions(lines.length ? lines : FALLBACK_TASK_SUGGESTIONS);
     } catch {
       setSuggestions(FALLBACK_TASK_SUGGESTIONS);
-      setError('Gemini is unavailable — showing a few standbys instead.');
+      setError('The planner agent is unavailable — showing a few standbys instead.');
     } finally {
       setSuggesting(false);
     }
@@ -91,7 +93,16 @@ export function TasksPanel({
           <button onClick={() => void add()}>Add task</button>
         </div>
 
-        <div className="row" style={{ marginTop: 10 }}>
+        <label className="check-line" style={{ marginTop: 12 }}>
+          <input
+            type="checkbox"
+            checked={needsNote}
+            onChange={(e) => setNeedsNote(e.target.checked)}
+          />
+          <span>Ask for a written note, and have the verifier agent read it</span>
+        </label>
+
+        <div className="row" style={{ marginTop: 12, flexWrap: 'wrap' }}>
           <button className="ghost small" disabled={suggesting} onClick={() => void suggest()}>
             {suggesting ? 'Thinking…' : '✨ Suggest tasks'}
           </button>

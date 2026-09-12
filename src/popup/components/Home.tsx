@@ -1,4 +1,4 @@
-import type { Child, Task } from '@shared/types';
+import type { AgentVerdict, Child, GatePolicy, Task } from '@shared/types';
 import { nextBadgeProgress } from '@shared/awards';
 import { BADGE_BY_KEY } from '@shared/badges';
 import { TaskList } from './TaskList';
@@ -7,7 +7,9 @@ interface Props {
   child: Child;
   tasks: Task[];
   earnedKeys: string[];
+  gatePolicy: GatePolicy;
   onMarkDone: (task: Task) => Promise<void>;
+  onVerify: (task: Task, evidence: string) => Promise<AgentVerdict>;
 }
 
 function greeting(name: string): string {
@@ -17,7 +19,7 @@ function greeting(name: string): string {
   return `Evening, ${name}!`;
 }
 
-export function Home({ child, tasks, earnedKeys, onMarkDone }: Props) {
+export function Home({ child, tasks, earnedKeys, gatePolicy, onMarkDone, onVerify }: Props) {
   const progress = nextBadgeProgress(child, earnedKeys);
   const open = tasks.filter((t) => t.status !== 'approved').length;
 
@@ -74,7 +76,12 @@ export function Home({ child, tasks, earnedKeys, onMarkDone }: Props) {
         )}
       </header>
 
-      <TaskList tasks={tasks} onMarkDone={onMarkDone} />
+      <TaskList
+        tasks={tasks}
+        gatePolicy={gatePolicy}
+        onMarkDone={onMarkDone}
+        onVerify={onVerify}
+      />
     </div>
   );
 }

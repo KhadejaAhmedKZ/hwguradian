@@ -2,8 +2,15 @@ import { useEffect, useState } from 'react';
 import { onAuthStateChanged, type User } from 'firebase/auth';
 import { onSnapshot, query, where, orderBy } from 'firebase/firestore';
 import { parentAuth, parentDb } from '../firebase';
-import { childrenCol, householdsCol, redemptionsCol, rewardsCol, tasksCol } from '../lib/paths';
-import type { Child, Household, Redemption, Reward, Task } from '@shared/types';
+import {
+  childrenCol,
+  choresCol,
+  householdsCol,
+  redemptionsCol,
+  rewardsCol,
+  tasksCol,
+} from '../lib/paths';
+import type { Child, Chore, Household, Redemption, Reward, Task } from '@shared/types';
 
 export interface ParentData {
   authReady: boolean;
@@ -12,6 +19,7 @@ export interface ParentData {
   household: Household | null;
   children: Child[];
   tasks: Task[];
+  chores: Chore[];
   rewards: Reward[];
   redemptions: Redemption[];
   error: string | null;
@@ -25,6 +33,7 @@ export function useParentData(): ParentData {
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [children, setChildren] = useState<Child[]>([]);
   const [tasks, setTasks] = useState<Task[]>([]);
+  const [chores, setChores] = useState<Chore[]>([]);
   const [rewards, setRewards] = useState<Reward[]>([]);
   const [redemptions, setRedemptions] = useState<Redemption[]>([]);
   const [error, setError] = useState<string | null>(null);
@@ -60,6 +69,7 @@ export function useParentData(): ParentData {
     if (!hid) {
       setChildren([]);
       setTasks([]);
+      setChores([]);
       setRewards([]);
       setRedemptions([]);
       return;
@@ -75,6 +85,11 @@ export function useParentData(): ParentData {
       onSnapshot(
         query(tasksCol(db, hid), orderBy('createdAt', 'desc')),
         (s) => setTasks(s.docs.map((d) => ({ id: d.id, ...d.data() }) as Task)),
+        fail,
+      ),
+      onSnapshot(
+        query(choresCol(db, hid), orderBy('createdAt', 'desc')),
+        (s) => setChores(s.docs.map((d) => ({ id: d.id, ...d.data() }) as Chore)),
         fail,
       ),
       onSnapshot(
@@ -98,6 +113,7 @@ export function useParentData(): ParentData {
     household: households.find((h) => h.id === selectedId) ?? null,
     children,
     tasks,
+    chores,
     rewards,
     redemptions,
     error,

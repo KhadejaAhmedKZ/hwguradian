@@ -1,17 +1,27 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useParentData } from './useParentData';
 import { PinGate } from './components/PinGate';
 import { SignIn } from './components/SignIn';
 import { ChildrenPanel } from './components/ChildrenPanel';
+import { ChoresPanel } from './components/ChoresPanel';
+import { ScreenTimePanel } from './components/ScreenTimePanel';
 import { TasksPanel } from './components/TasksPanel';
 import { ApprovalsPanel } from './components/ApprovalsPanel';
 import { RewardsPanel } from './components/RewardsPanel';
 import { DomainsPanel } from './components/DomainsPanel';
 import { SettingsPanel } from './components/SettingsPanel';
-import { createHousehold } from '../lib/parentActions';
+import { createHousehold, syncChoresNow } from '../lib/parentActions';
 import { isFirebaseConfigured } from '../config';
 
-type Tab = 'approvals' | 'tasks' | 'children' | 'rewards' | 'sites' | 'settings';
+type Tab =
+  | 'approvals'
+  | 'chores'
+  | 'tasks'
+  | 'screentime'
+  | 'children'
+  | 'rewards'
+  | 'sites'
+  | 'settings';
 
 export function Options() {
   const [unlocked, setUnlocked] = useState(false);
@@ -19,6 +29,14 @@ export function Options() {
   const [householdName, setHouseholdName] = useState('');
   const [creating, setCreating] = useState(false);
   const data = useParentData();
+  const householdId = data.household?.id ?? null;
+
+  // Materialise any chores due today as soon as a parent opens the dashboard,
+  // so no scheduler is needed for the ordinary case.
+  useEffect(() => {
+    if (!householdId || !unlocked) return;
+    void syncChoresNow(householdId).catch(() => undefined);
+  }, [householdId, unlocked]);
 
   if (!isFirebaseConfigured) {
     return (
@@ -74,7 +92,9 @@ export function Options() {
 
   const TABS: { id: Tab; label: string; badge?: number }[] = [
     { id: 'approvals', label: 'Approvals', badge: needsApproval },
-    { id: 'tasks', label: 'Tasks' },
+    { id: 'chores', label: 'Chores' },
+    { id: 'tasks', label: 'One-off tasks' },
+    { id: 'screentime', label: 'Screen time' },
     { id: 'children', label: 'Children' },
     { id: 'rewards', label: 'Rewards', badge: pendingRewards },
     { id: 'sites', label: 'Blocked sites' },
@@ -116,8 +136,14 @@ export function Options() {
         {tab === 'approvals' && (
           <ApprovalsPanel hid={hid} childrenList={data.children} tasks={data.tasks} />
         )}
+        {tab === 'chores' && (
+          <ChoresPanel hid={hid} childrenList={data.children} chores={data.chores} />
+        )}
         {tab === 'tasks' && (
           <TasksPanel hid={hid} childrenList={data.children} tasks={data.tasks} />
+        )}
+        {tab === 'screentime' && (
+          <ScreenTimePanel household={data.household} childrenList={data.children} />
         )}
         {tab === 'children' && <ChildrenPanel hid={hid} children={data.children} />}
         {tab === 'rewards' && (

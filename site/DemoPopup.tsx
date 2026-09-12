@@ -4,7 +4,7 @@ import { BadgeCase } from '../src/popup/components/BadgeCase';
 import { Shop } from '../src/popup/components/Shop';
 import { Leaderboard } from '../src/popup/components/Leaderboard';
 import { earnedBadges, initialRedemptions, initialTasks, me, rewards, sibling } from './demoData';
-import type { Redemption, Reward, Task } from '@shared/types';
+import type { AgentVerdict, Redemption, Reward, Task } from '@shared/types';
 
 type Tab = 'home' | 'badges' | 'shop' | 'board';
 
@@ -32,6 +32,35 @@ export function DemoPopup() {
     );
   };
 
+  /**
+   * A stand-in for the server-side verifier agent, so the demo can show the
+   * shape of the interaction. The real one runs in a Cloud Function and writes
+   * its verdict where no client can reach it.
+   */
+  const verify = async (task: Task, evidence: string): Promise<AgentVerdict> => {
+    await new Promise((r) => setTimeout(r, 700));
+    const detailed = evidence.trim().split(/\s+/).length >= 6;
+    const verdict: AgentVerdict = detailed
+      ? {
+          state: 'pass',
+          reason: 'That covers it — nice and specific.',
+          followUp: null,
+          checkedAt: Date.now(),
+          agentId: 'chore_verifier',
+          model: 'demo',
+        }
+      : {
+          state: 'needs_more',
+          reason: "I can't tell yet whether it's finished.",
+          followUp: 'What did you do with the clothes on the floor?',
+          checkedAt: Date.now(),
+          agentId: 'chore_verifier',
+          model: 'demo',
+        };
+    setTasks((list) => list.map((t) => (t.id === task.id ? { ...t, agentVerdict: verdict } : t)));
+    return verdict;
+  };
+
   const redeem = async (reward: Reward) => {
     setRedemptions((list) => [
       ...list,
@@ -49,7 +78,14 @@ export function DemoPopup() {
     <div className="shell demo-shell">
       <div className="tab-body">
         {tab === 'home' && (
-          <Home child={me} tasks={tasks} earnedKeys={earnedKeys} onMarkDone={markDone} />
+          <Home
+            child={me}
+            tasks={tasks}
+            earnedKeys={earnedKeys}
+            gatePolicy="agent_unlock"
+            onMarkDone={markDone}
+            onVerify={verify}
+          />
         )}
         {tab === 'badges' && <BadgeCase earned={earnedBadges} />}
         {tab === 'shop' && (

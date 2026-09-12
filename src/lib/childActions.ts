@@ -1,11 +1,12 @@
-// The only two writes a child is allowed to make. Both are shaped to match the
+// The only writes a child is allowed to make. Both are shaped to match the
 // Firestore rules exactly — anything else is rejected server-side.
 
-import { addDoc, serverTimestamp, updateDoc } from 'firebase/firestore';
-import { childDb } from '../firebase';
+import { addDoc, updateDoc } from 'firebase/firestore';
+import { httpsCallable } from 'firebase/functions';
+import { childDb, childFunctions } from '../firebase';
 import { redemptionsCol, taskDoc } from './paths';
 import { sendToBackground } from './messages';
-import type { Child, Reward, Task } from '@shared/types';
+import type { AgentVerdict, Child, Reward, Task } from '@shared/types';
 
 /**
  * Mark a task done.
@@ -13,7 +14,7 @@ import type { Child, Reward, Task } from '@shared/types';
  * Before flipping the status we ask the background worker one yes/no question:
  * was the active tab (or a tab focused in the last 5 minutes) on a blocked
  * domain? The answer becomes a single boolean on this task, shown only to the
- * parent. Nothing else about browsing is read, sent or stored.
+ * parent.
  */
 export async function markTaskDone(householdId: string, task: Task): Promise<void> {
   let flagged = false;
@@ -25,6 +26,26 @@ export async function markTaskDone(householdId: string, task: Task): Promise<voi
     flaggedRecentBlockedActivity: flagged,
     submittedAt: Date.now(),
   });
+}
+
+/**
+ * Hand the child's description to the verifier agent.
+ *
+ * The evidence text and the verdict are both written by the server — the child
+ * client cannot author either, which is the only reason the verdict is worth
+ * anything. A 'pass' may reopen blocked sites; it never awards a point.
+ */
+export async function submitForVerification(
+  taskId: string,
+  evidence: string,
+): Promise<AgentVerdict> {
+  const callable = httpsCallable<{ taskId: string; evidence: string }, { verdict: AgentVerdict }>(
+    childFunctions(),
+    'verifyChore',
+  );
+  const result = await callable({ taskId, evidence });
+  await sendToBackground({ type: 'RESYNC' });
+  return result.data.verdict;
 }
 
 /**
@@ -46,5 +67,3 @@ export async function requestReward(
     grantedAt: null,
   });
 }
-
-export { serverTimestamp };

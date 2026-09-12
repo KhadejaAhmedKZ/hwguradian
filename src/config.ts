@@ -16,13 +16,6 @@ export const firebaseConfig = {
 export const FUNCTIONS_REGION = env.VITE_FUNCTIONS_REGION ?? 'us-central1';
 export const USE_EMULATORS = env.VITE_USE_EMULATORS === 'true';
 
-/**
- * DEV ONLY. When set, Gemini is called straight from the extension and the key
- * ships inside the bundle where anyone can read it. Leave empty and use the
- * `geminiAssist` callable function instead.
- */
-export const DEV_GEMINI_API_KEY = env.VITE_GEMINI_API_KEY ?? '';
-
 export const isFirebaseConfigured =
   Boolean(firebaseConfig.apiKey) && Boolean(firebaseConfig.projectId);
 

@@ -1,4 +1,4 @@
-import type { Child, EarnedBadge, Redemption, Reward, Task } from '@shared/types';
+import type { Child, Chore, EarnedBadge, Redemption, Reward, Task } from '@shared/types';
 
 export const me: Child = {
   id: 'c1', name: 'Yusuf', avatarEmoji: '🦊', totalPoints: 145,
@@ -22,7 +22,7 @@ const task = (
 export const initialTasks: Task[] = [
   task('t1', 'Finish maths worksheet', 10, 'pending'),
   task('t2', 'Read for 20 minutes', 15, 'pending'),
-  task('t3', 'Tidy bedroom floor', 5, 'pending_approval'),
+  { ...task('t3', 'Tidy bedroom floor', 5, 'pending'), requiresEvidence: true },
   task('t4', 'Practise spelling words', 10, 'approved'),
 ];
 
@@ -44,4 +44,48 @@ export const earnedBadges: EarnedBadge[] = [
   { key: 'first_task', earnedAt: Date.now() },
   { key: 'streak_3', earnedAt: Date.now() },
   { key: 'early_bird', earnedAt: Date.now() },
+];
+
+/** A submitted chore carrying the child's note and the agent's verdict. */
+export const verifiedTask: Task = {
+  ...task('t9', 'Tidy bedroom floor', 5, 'pending_approval'),
+  submittedAt: Date.now() - 1000 * 60 * 12,
+  requiresEvidence: true,
+  flaggedRecentBlockedActivity: true,
+  evidence:
+    'I put all my clothes in the wash basket, made the bed and moved the lego box back under the desk.',
+  agentVerdict: {
+    state: 'pass',
+    reason: 'That covers the clothes, the bed and the floor — sounds finished.',
+    followUp: null,
+    checkedAt: Date.now() - 1000 * 60 * 11,
+    agentId: 'chore_verifier',
+    model: 'gemini-2.5-flash',
+  },
+};
+
+export const demoChores: Chore[] = [
+  {
+    id: 'ch1', title: 'Tidy your bedroom', childId: me.id, pointsValue: 5,
+    description: 'Clothes in the basket, bed made, floor clear enough to walk across.',
+    recurrence: 'daily', daysOfWeek: [], requiresEvidence: true, active: true,
+    rotationIndex: 0, lastGeneratedDate: null, createdAt: 0,
+  },
+  {
+    id: 'ch2', title: 'Empty the dishwasher', childId: 'rotate', pointsValue: 8,
+    description: 'Everything put away in the right cupboard, machine left empty.',
+    recurrence: 'weekdays', daysOfWeek: [], requiresEvidence: true, active: true,
+    rotationIndex: 1, lastGeneratedDate: null, createdAt: 0,
+  },
+  {
+    id: 'ch3', title: 'Take the bins out', childId: sibling.id, pointsValue: 10,
+    description: 'Both bins to the kerb before bedtime.',
+    recurrence: 'weekly', daysOfWeek: [2, 5], requiresEvidence: false, active: true,
+    rotationIndex: 0, lastGeneratedDate: null, createdAt: 0,
+  },
+  {
+    id: 'ch4', title: 'Water the plants', childId: me.id, pointsValue: 3,
+    description: '', recurrence: 'weekly', daysOfWeek: [0], requiresEvidence: false,
+    active: false, rotationIndex: 0, lastGeneratedDate: null, createdAt: 0,
+  },
 ];

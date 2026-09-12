@@ -2,25 +2,40 @@
 //
 // Responsibilities:
 //   1. Keep a local mirror of this child's household, tasks and blocked domains.
-//   2. Compute any_pending and push declarativeNetRequest dynamic rules.
+//   2. Compute whether the gate is closed and push declarativeNetRequest rules.
 //   3. Answer the one activity question the popup asks at "mark done" time.
+//   4. Account screen time per domain, when the household has opted in.
 //
 // The worker is assumed to die at any moment: every path re-reads state from
 // chrome.storage / Firestore rather than trusting anything held in memory.
 
 import { onAuthStateChanged, type User } from 'firebase/auth';
-import { doc, getDoc, getDocs, onSnapshot, query, where } from 'firebase/firestore';
-import { childAuth, childDb } from '../firebase';
-import { childLinkDoc, householdDoc, tasksCol } from '../lib/paths';
+import { doc, getDoc, getDocs, onSnapshot, query, setDoc, where } from 'firebase/firestore';
+import { httpsCallable } from 'firebase/functions';
+import { childAuth, childDb, childFunctions } from '../firebase';
+import { childLinkDoc, householdDoc, tasksCol, usageDoc } from '../lib/paths';
 import { getCachedState, setCachedState, type CachedState } from '../lib/storage';
 import { applyBlockingRules } from '../lib/blocking';
+import { isTaskBlocking } from '../lib/gate';
+import {
+  clearLocalUsage,
+  commitActiveSegment,
+  markFlushed,
+  pauseTracking,
+  readLocalUsage,
+  startSegment,
+  totalSecondsOf,
+} from '../lib/usage';
 import { hostnameOf, matchesBlockedDomain } from '@shared/domains';
+import { dayKey } from '@shared/awards';
 import { isFirebaseConfigured, RECENT_ACTIVITY_WINDOW_MS, SYNC_ALARM_MINUTES } from '../config';
 import type { ExtMessage, ExtResponse } from '../lib/messages';
 import type { Household, Task } from '@shared/types';
 
 const SYNC_ALARM = 'hwg-sync';
+const USAGE_ALARM = 'hwg-usage-flush';
 const FOCUS_KEY = 'lastBlockedFocusAt';
+const IDLE_SECONDS = 60;
 
 let unsubscribers: Array<() => void> = [];
 
@@ -33,35 +48,44 @@ async function applyFromCache(): Promise<void> {
   await applyBlockingRules(state.anyPending, state.blockedDomains);
 }
 
-function openTasksOf(tasks: Task[]) {
-  return tasks
-    .filter((t) => t.status === 'pending' || t.status === 'pending_approval')
-    .map((t) => ({ id: t.id, title: t.title, pointsValue: t.pointsValue, status: t.status }));
-}
-
 async function storeAndApply(
-  household: Pick<Household, 'blockedDomains'>,
+  household: Household,
   tasks: Task[],
   link: { householdId: string; childId: string },
   childName: string | null,
 ): Promise<void> {
-  const open = openTasksOf(tasks);
+  const policy = household.gatePolicy ?? 'parent_only';
+  const blocking = tasks.filter((t) => isTaskBlocking(t, policy));
+  const open = tasks
+    .filter((t) => t.status !== 'approved')
+    .map((t) => ({
+      id: t.id,
+      title: t.title,
+      pointsValue: t.pointsValue,
+      status: t.status,
+    }));
+
   const next: Partial<CachedState> = {
     householdId: link.householdId,
     childId: link.childId,
     childName,
     blockedDomains: household.blockedDomains ?? [],
     openTasks: open,
-    anyPending: open.length > 0,
+    anyPending: blocking.length > 0,
+    gatePolicy: policy,
+    screenTimeEnabled: household.screenTimeEnabled === true,
+    timezone: household.timezone || 'UTC',
   };
   await setCachedState(next);
-  await applyBlockingRules(open.length > 0, household.blockedDomains ?? []);
+  await applyBlockingRules(blocking.length > 0, household.blockedDomains ?? []);
   await updateBadgeText(open.length);
+
+  if (household.screenTimeEnabled !== true) await clearLocalUsage();
 }
 
 async function updateBadgeText(openCount: number): Promise<void> {
   try {
-    await chrome.action.setBadgeBackgroundColor({ color: openCount > 0 ? '#6366f1' : '#10b981' });
+    await chrome.action.setBadgeBackgroundColor({ color: openCount > 0 ? '#6c4cf5' : '#0ca678' });
     await chrome.action.setBadgeText({ text: openCount > 0 ? String(openCount) : '' });
   } catch {
     /* action API can be unavailable very early in startup */
@@ -97,10 +121,21 @@ async function syncOnce(): Promise<void> {
   ]);
   if (!householdSnap.exists()) return;
 
-  const household = householdSnap.data() as Household;
+  const household = { id: householdSnap.id, ...householdSnap.data() } as Household;
   const tasks = taskSnap.docs.map((d) => ({ id: d.id, ...(d.data() as Omit<Task, 'id'>) }));
   const childName = childSnap.exists() ? ((childSnap.data() as { name: string }).name ?? null) : null;
   await storeAndApply(household, tasks, link, childName);
+}
+
+/** Ask the server to materialise today's chores into tasks. */
+async function syncChores(householdId: string): Promise<void> {
+  if (!isFirebaseConfigured) return;
+  try {
+    const callable = httpsCallable(childFunctions(), 'syncChores');
+    await callable({ householdId });
+  } catch {
+    // Non-fatal: the parent dashboard runs the same call when it opens.
+  }
 }
 
 /** Live listeners. They only live as long as the worker does — that's fine. */
@@ -150,13 +185,12 @@ function detachListeners(): void {
 }
 
 // ---------------------------------------------------------------------------
-// Activity signal — the entire extent of it
+// Activity signal for the approval queue
 // ---------------------------------------------------------------------------
 //
-// We record ONE thing: a timestamp, set when a tab on a blocked domain is
-// focused. Not which domain. Not the URL. Not how long. It lives in
-// chrome.storage.session, so it is gone when the browser closes, and it is read
-// exactly once — when the child taps "mark done".
+// One timestamp, set when a tab on a blocked domain is focused. Not which
+// domain. Not the URL. It lives in chrome.storage.session, so it is gone when
+// the browser closes, and it is read exactly once — at "mark done" time.
 
 async function noteFocusedTab(url: string | undefined): Promise<void> {
   const { blockedDomains } = await getCachedState();
@@ -170,7 +204,6 @@ async function wasRecentlyOnBlockedSite(): Promise<boolean> {
   const { blockedDomains } = await getCachedState();
   if (blockedDomains.length === 0) return false;
 
-  // 1. The tab that is active right now.
   try {
     const [active] = await chrome.tabs.query({ active: true, lastFocusedWindow: true });
     if (matchesBlockedDomain(hostnameOf(active?.url), blockedDomains)) return true;
@@ -178,10 +211,51 @@ async function wasRecentlyOnBlockedSite(): Promise<boolean> {
     /* no window focused */
   }
 
-  // 2. The last blocked-domain focus, if it was within the window.
   const stored = await chrome.storage.session.get(FOCUS_KEY);
   const at = stored[FOCUS_KEY] as number | undefined;
   return typeof at === 'number' && Date.now() - at <= RECENT_ACTIVITY_WINDOW_MS;
+}
+
+// ---------------------------------------------------------------------------
+// Screen time
+// ---------------------------------------------------------------------------
+
+async function today(): Promise<string> {
+  const { timezone } = await getCachedState();
+  return dayKey(new Date(), timezone || 'UTC');
+}
+
+async function onFocusMoved(url: string | undefined): Promise<void> {
+  const state = await getCachedState();
+  if (!state.screenTimeEnabled) return;
+  await startSegment(url, dayKey(new Date(), state.timezone || 'UTC'));
+}
+
+/** Push the day's totals up. Full map each time, so the write is idempotent. */
+async function flushUsage(): Promise<void> {
+  const state = await getCachedState();
+  if (!state.screenTimeEnabled || !state.householdId || !state.childId) return;
+  if (!isFirebaseConfigured || !childAuth().currentUser) return;
+
+  await commitActiveSegment(await today());
+  const usage = await readLocalUsage();
+  if (!usage || !usage.dirty) return;
+
+  try {
+    await setDoc(
+      usageDoc(childDb(), state.householdId, state.childId, usage.day),
+      {
+        day: usage.day,
+        domains: usage.domains,
+        totalSeconds: totalSecondsOf(usage),
+        updatedAt: Date.now(),
+      },
+      { merge: true },
+    );
+    await markFlushed();
+  } catch {
+    // Keep the local copy dirty and retry on the next alarm.
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -190,7 +264,6 @@ async function wasRecentlyOnBlockedSite(): Promise<boolean> {
 
 chrome.runtime.onInstalled.addListener(() => {
   void bootstrap();
-  // Send the parent straight to setup on first install.
   try {
     chrome.runtime.openOptionsPage();
   } catch {
@@ -204,19 +277,51 @@ chrome.runtime.onStartup.addListener(() => {
 
 chrome.alarms.onAlarm.addListener((alarm) => {
   if (alarm.name === SYNC_ALARM) void syncOnce();
+  if (alarm.name === USAGE_ALARM) void flushUsage();
 });
 
 chrome.tabs.onActivated.addListener(async ({ tabId }) => {
   try {
     const tab = await chrome.tabs.get(tabId);
     await noteFocusedTab(tab.url);
+    await onFocusMoved(tab.url);
   } catch {
     /* tab gone */
   }
 });
 
 chrome.tabs.onUpdated.addListener((_tabId, changeInfo, tab) => {
-  if (changeInfo.status === 'complete' && tab.active) void noteFocusedTab(tab.url);
+  if (changeInfo.status === 'complete' && tab.active) {
+    void noteFocusedTab(tab.url);
+    void onFocusMoved(tab.url);
+  }
+});
+
+chrome.windows.onFocusChanged.addListener(async (windowId) => {
+  if (windowId === chrome.windows.WINDOW_ID_NONE) {
+    void pauseTracking(await today());
+    return;
+  }
+  try {
+    const [tab] = await chrome.tabs.query({ active: true, windowId });
+    await onFocusMoved(tab?.url);
+  } catch {
+    /* window gone */
+  }
+});
+
+chrome.idle.onStateChanged.addListener(async (state) => {
+  if (state === 'active') {
+    try {
+      const [tab] = await chrome.tabs.query({ active: true, lastFocusedWindow: true });
+      await onFocusMoved(tab?.url);
+    } catch {
+      /* no window */
+    }
+  } else {
+    // idle or locked — stop the clock rather than bank time nobody spent.
+    void pauseTracking(await today());
+  }
 });
 
 chrome.runtime.onMessage.addListener(
@@ -233,6 +338,12 @@ chrome.runtime.onMessage.addListener(
           (error: Error) => sendResponse({ type: 'ERROR', message: error.message }),
         );
         return true;
+      case 'FLUSH_USAGE':
+        void flushUsage().then(
+          () => sendResponse({ type: 'OK' }),
+          (error: Error) => sendResponse({ type: 'ERROR', message: error.message }),
+        );
+        return true;
       default:
         sendResponse({ type: 'ERROR', message: 'Unknown message' });
         return false;
@@ -243,7 +354,13 @@ chrome.runtime.onMessage.addListener(
 async function bootstrap(): Promise<void> {
   // Rules first, from cache — the gate should hold before the network is up.
   await applyFromCache();
-  await chrome.alarms.create(SYNC_ALARM, { periodInMinutes: SYNC_ALARM_MINUTES });
+  chrome.alarms.create(SYNC_ALARM, { periodInMinutes: SYNC_ALARM_MINUTES });
+  chrome.alarms.create(USAGE_ALARM, { periodInMinutes: 2 });
+  try {
+    chrome.idle.setDetectionInterval(IDLE_SECONDS);
+  } catch {
+    /* idle API unavailable */
+  }
 
   if (!isFirebaseConfigured) return;
   onAuthStateChanged(childAuth(), (user) => {
@@ -252,7 +369,10 @@ async function bootstrap(): Promise<void> {
       return;
     }
     void attachListeners(user);
-    void syncOnce();
+    void syncOnce().then(async () => {
+      const { householdId } = await getCachedState();
+      if (householdId) await syncChores(householdId);
+    });
   });
 }
 

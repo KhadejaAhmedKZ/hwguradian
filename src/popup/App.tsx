@@ -5,7 +5,7 @@ import { BadgeCase } from './components/BadgeCase';
 import { Shop } from './components/Shop';
 import { Leaderboard } from './components/Leaderboard';
 import { Pairing } from './components/Pairing';
-import { markTaskDone, requestReward } from '../lib/childActions';
+import { markTaskDone, requestReward, submitForVerification } from '../lib/childActions';
 import type { Reward, Task } from '@shared/types';
 
 type Tab = 'home' | 'badges' | 'shop' | 'board';
@@ -72,13 +72,21 @@ export function App() {
   const earnedKeys = data.earnedBadges.map((b) => b.key);
 
   const onMarkDone = (task: Task) => markTaskDone(householdId, task);
+  const onVerify = (task: Task, evidence: string) => submitForVerification(task.id, evidence);
   const onRedeem = (reward: Reward) => requestReward(householdId, data.child!, reward);
 
   return (
     <div className="shell">
       <div className="tab-body">
         {tab === 'home' && (
-          <Home child={data.child} tasks={data.tasks} earnedKeys={earnedKeys} onMarkDone={onMarkDone} />
+          <Home
+            child={data.child}
+            tasks={data.tasks}
+            earnedKeys={earnedKeys}
+            gatePolicy={data.household.gatePolicy ?? 'parent_only'}
+            onMarkDone={onMarkDone}
+            onVerify={onVerify}
+          />
         )}
         {tab === 'badges' && <BadgeCase earned={data.earnedBadges} />}
         {tab === 'shop' && (

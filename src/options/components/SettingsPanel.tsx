@@ -2,7 +2,8 @@ import { useState } from 'react';
 import { signOut } from 'firebase/auth';
 import type { Household } from '@shared/types';
 import { parentAuth } from '../../firebase';
-import { setLeaderboardMetric } from '../../lib/parentActions';
+import { setGatePolicy, setLeaderboardMetric, setScreenTimeEnabled } from '../../lib/parentActions';
+import { AGENT_INFO } from '../../lib/agentInfo';
 import { isValidPinFormat, savePin, verifyPin } from '../../lib/pin';
 
 export function SettingsPanel({ household, onLock }: { household: Household; onLock: () => void }) {
@@ -24,6 +25,87 @@ export function SettingsPanel({ household, onLock }: { household: Household; onL
 
   return (
     <div className="stack">
+      <section className="card panel">
+        <h2>What reopens the blocked sites</h2>
+        <p className="muted tiny" style={{ marginTop: 0 }}>
+          Points always wait for you either way. This only decides how fast the sites come back.
+        </p>
+        <div className="policy-choice">
+          <button
+            className={`policy ${household.gatePolicy === 'parent_only' ? 'on' : ''}`}
+            onClick={() => void setGatePolicy(household.id, 'parent_only')}
+          >
+            <strong>Only me</strong>
+            <span>
+              Sites stay blocked until you approve the task yourself. Strictest, and the default.
+            </span>
+          </button>
+          <button
+            className={`policy ${household.gatePolicy === 'agent_unlock' ? 'on' : ''}`}
+            onClick={() => void setGatePolicy(household.id, 'agent_unlock')}
+          >
+            <strong>The verifier agent can</strong>
+            <span>
+              If the agent reads the child's written note and thinks the chore is done, sites
+              reopen immediately. The task still waits in your queue, and no points move until you
+              approve it.
+            </span>
+          </button>
+        </div>
+        <div className="notice tiny" style={{ marginTop: 12 }}>
+          Worth knowing before you pick the second one: the agent reads what the child{' '}
+          <em>wrote</em>. It cannot see the room, so a convincing description of a chore that never
+          happened will pass. It stops vague answers, not determined ones.
+        </div>
+      </section>
+
+      <section className="card panel">
+        <h2>Agents</h2>
+        <p className="muted tiny" style={{ marginTop: 0 }}>
+          All three run on the server, never in the child's browser — an agent's answer is only
+          worth something if the device can't write it itself.
+        </p>
+        <ul className="plain-list stack">
+          {AGENT_INFO.map((agent) => (
+            <li key={agent.id} className="list-row agent-row">
+              <span className="agent-icon" aria-hidden="true">{agent.icon}</span>
+              <span className="grow">
+                <strong>{agent.label}</strong>
+                <span className="tiny muted chore-meta">{agent.description}</span>
+              </span>
+              <span className="pill">{agent.caller}</span>
+            </li>
+          ))}
+        </ul>
+        <div className="notice tiny" style={{ marginTop: 12 }}>
+          No agent can approve a task, move a point, change a streak or award a badge. Those are
+          parent-only actions, enforced in the Firestore rules rather than by prompt.
+        </div>
+      </section>
+
+      <section className="card panel">
+        <h2>Screen time</h2>
+        <p className="muted tiny" style={{ marginTop: 0 }}>
+          {household.screenTimeEnabled
+            ? 'Recording seconds per domain per day on the child\'s browser. No URLs, titles or page content.'
+            : 'Off. Nothing about time spent is recorded.'}
+        </p>
+        <div className="row">
+          <button
+            className={household.screenTimeEnabled ? '' : 'ghost'}
+            onClick={() => void setScreenTimeEnabled(household.id, true)}
+          >
+            On
+          </button>
+          <button
+            className={household.screenTimeEnabled ? 'ghost' : ''}
+            onClick={() => void setScreenTimeEnabled(household.id, false)}
+          >
+            Off
+          </button>
+        </div>
+      </section>
+
       <section className="card panel">
         <h2>Leaderboard</h2>
         <p className="muted tiny" style={{ marginTop: 0 }}>

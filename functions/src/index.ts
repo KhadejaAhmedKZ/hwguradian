@@ -5,10 +5,12 @@
  * nowhere else: points, streaks, badge awards and reward deductions. The
  * clients only ever set intent ("approved", "requested"); the numbers are
  * derived server-side by the Admin SDK, which bypasses Firestore rules.
+ *
+ * The agent layer lives here for the same reason — see agents/registry.ts.
  */
 
 import { onDocumentCreated, onDocumentUpdated } from 'firebase-functions/v2/firestore';
-import { onCall, HttpsError } from 'firebase-functions/v2/https';
+import { onCall, HttpsError, type CallableRequest } from 'firebase-functions/v2/https';
 import { defineSecret } from 'firebase-functions/params';
 import { setGlobalOptions } from 'firebase-functions/v2';
 import * as logger from 'firebase-functions/logger';
@@ -16,7 +18,10 @@ import { initializeApp } from 'firebase-admin/app';
 import { getFirestore, FieldValue } from 'firebase-admin/firestore';
 
 import { applyApproval, type ChildAwardState } from './shared/awards';
-import type { Task } from './shared/types';
+import type { AgentVerdict, Chore, Task, VerdictState } from './shared/types';
+import { AGENTS, VERIFIER_SCHEMA, type CallerPolicy } from './agents/registry';
+import { generate, MODEL } from './agents/gemini';
+import { syncChoresForHousehold } from './chores';
 
 initializeApp();
 const db = getFirestore();
@@ -25,6 +30,53 @@ const db = getFirestore();
 setGlobalOptions({ region: 'us-central1', maxInstances: 10 });
 
 const GEMINI_API_KEY = defineSecret('GEMINI_API_KEY');
+
+const MAX_VERIFY_ATTEMPTS = 5;
+
+// ---------------------------------------------------------------------------
+// Shared auth helpers
+// ---------------------------------------------------------------------------
+
+function requireAuth(request: CallableRequest): string {
+  if (!request.auth) throw new HttpsError('unauthenticated', 'Sign in first.');
+  return request.auth.uid;
+}
+
+function isAnonymous(request: CallableRequest): boolean {
+  return request.auth?.token.firebase?.sign_in_provider === 'anonymous';
+}
+
+async function assertParentOf(uid: string, householdId: string): Promise<void> {
+  const snap = await db.doc(`households/${householdId}`).get();
+  if (!snap.exists || snap.data()?.parentUid !== uid) {
+    throw new HttpsError('permission-denied', 'Not your household.');
+  }
+}
+
+async function childLinkOf(uid: string): Promise<{ householdId: string; childId: string }> {
+  const snap = await db.doc(`childLinks/${uid}`).get();
+  const data = snap.data();
+  if (!snap.exists || !data?.householdId || !data?.childId) {
+    throw new HttpsError('permission-denied', 'This device is not paired to a child.');
+  }
+  return { householdId: data.householdId, childId: data.childId };
+}
+
+async function enforceCallerPolicy(
+  request: CallableRequest,
+  policy: CallerPolicy,
+  householdId?: string,
+): Promise<void> {
+  const uid = requireAuth(request);
+  if (policy === 'any') return;
+  if (policy === 'parent') {
+    if (isAnonymous(request)) throw new HttpsError('permission-denied', 'Parents only.');
+    if (householdId) await assertParentOf(uid, householdId);
+    return;
+  }
+  // policy === 'child'
+  await childLinkOf(uid);
+}
 
 // ---------------------------------------------------------------------------
 // Points, streaks and badges — the only place these are ever written.
@@ -150,69 +202,147 @@ export const onRedemptionResolved = onDocumentUpdated(
 );
 
 // ---------------------------------------------------------------------------
-// Gemini proxy — keeps the API key off every installed copy of the extension.
+// Chores
 // ---------------------------------------------------------------------------
 
-const MODEL = 'gemini-2.5-flash';
+/**
+ * Materialise today's chores. Called by the parent dashboard and the child's
+ * popup when they open, so no scheduler is required for the common case.
+ */
+export const syncChores = onCall(async (request) => {
+  const uid = requireAuth(request);
+  const householdId = String(request.data?.householdId ?? '');
+  if (!householdId) throw new HttpsError('invalid-argument', 'householdId is required.');
 
-const SYSTEM_PROMPTS: Record<string, string> = {
-  suggest_tasks:
-    'You help a parent write short homework and chore tasks for their child. ' +
-    'Reply with 5 task titles, one per line, no numbering, no punctuation at the end. ' +
-    'Each under 8 words, concrete and checkable.',
-  encourage:
-    'You write one short encouraging line for a child who still has tasks left ' +
-    'before their sites unlock. Warm, never shaming, never sarcastic. ' +
-    'One sentence, under 12 words. Reply with the sentence only.',
-};
-
-export const geminiAssist = onCall(
-  { secrets: [GEMINI_API_KEY], enforceAppCheck: false },
-  async (request) => {
-    if (!request.auth) throw new HttpsError('unauthenticated', 'Sign in first.');
-
-    const kind = String(request.data?.kind ?? '');
-    const system = SYSTEM_PROMPTS[kind];
-    if (!system) throw new HttpsError('invalid-argument', 'Unknown assist kind.');
-
-    // Task suggestions are a parent-only feature; encouragement is for anyone
-    // signed in, including the child's anonymous account.
-    if (kind === 'suggest_tasks' && request.auth.token.firebase?.sign_in_provider === 'anonymous') {
-      throw new HttpsError('permission-denied', 'Parents only.');
+  if (isAnonymous(request)) {
+    const link = await childLinkOf(uid);
+    if (link.householdId !== householdId) {
+      throw new HttpsError('permission-denied', 'Not your household.');
     }
+  } else {
+    await assertParentOf(uid, householdId);
+  }
 
-    const key = GEMINI_API_KEY.value();
-    if (!key) throw new HttpsError('failed-precondition', 'GEMINI_API_KEY is not set.');
+  const created = await syncChoresForHousehold(householdId);
+  return { created };
+});
 
-    const prompt = String(request.data?.prompt ?? '').slice(0, 500);
+// ---------------------------------------------------------------------------
+// Agents
+// ---------------------------------------------------------------------------
 
-    const response = await fetch(
-      `https://generativelanguage.googleapis.com/v1beta/models/${MODEL}:generateContent?key=${encodeURIComponent(key)}`,
-      {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          systemInstruction: { parts: [{ text: system }] },
-          contents: [{ role: 'user', parts: [{ text: prompt }] }],
-          generationConfig: { temperature: 0.9, maxOutputTokens: 200 },
-        }),
-      },
-    );
+/**
+ * The chore verifier.
+ *
+ * The child submits what they did; this reads it against the chore definition
+ * and writes a verdict onto the task. A 'pass' can reopen blocked sites when the
+ * household's gate policy allows it — it can never approve the task or move a
+ * single point. That stays with the parent.
+ */
+export const verifyChore = onCall({ secrets: [GEMINI_API_KEY] }, async (request) => {
+  const uid = requireAuth(request);
+  const link = await childLinkOf(uid);
+  const taskId = String(request.data?.taskId ?? '');
+  const evidence = String(request.data?.evidence ?? '').slice(0, 1200).trim();
+  if (!taskId) throw new HttpsError('invalid-argument', 'taskId is required.');
 
-    if (!response.ok) {
-      logger.error('Gemini call failed', { status: response.status });
-      throw new HttpsError('unavailable', 'Gemini is unavailable right now.');
-    }
+  const taskRef = db.doc(`households/${link.householdId}/tasks/${taskId}`);
+  const taskSnap = await taskRef.get();
+  if (!taskSnap.exists) throw new HttpsError('not-found', 'No such task.');
 
-    const payload = (await response.json()) as {
-      candidates?: { content?: { parts?: { text?: string }[] } }[];
+  const task = taskSnap.data() as Task;
+  if (task.childId !== link.childId) {
+    throw new HttpsError('permission-denied', 'Not your task.');
+  }
+  if (task.status === 'approved') {
+    throw new HttpsError('failed-precondition', 'This one is already approved.');
+  }
+  if ((task.verifyAttempts ?? 0) >= MAX_VERIFY_ATTEMPTS) {
+    throw new HttpsError('resource-exhausted', 'Ask a parent to take a look at this one.');
+  }
+
+  let choreDescription = '';
+  if (task.choreId) {
+    const choreSnap = await db
+      .doc(`households/${link.householdId}/chores/${task.choreId}`)
+      .get();
+    choreDescription = ((choreSnap.data() as Chore | undefined)?.description ?? '').slice(0, 800);
+  }
+
+  const agent = AGENTS.chore_verifier!;
+  let verdict: AgentVerdict;
+
+  try {
+    const raw = await generate({
+      apiKey: GEMINI_API_KEY.value(),
+      system: agent.system,
+      user: [
+        `Chore: ${task.title}`,
+        choreDescription ? `What counts as done: ${choreDescription}` : '',
+        `What the child wrote: ${evidence || '(they wrote nothing)'}`,
+      ]
+        .filter(Boolean)
+        .join('\n'),
+      responseSchema: VERIFIER_SCHEMA as unknown as Record<string, unknown>,
+      temperature: 0.2,
+    });
+
+    const parsed = JSON.parse(raw) as { state?: string; reason?: string; followUp?: string };
+    const state: VerdictState =
+      parsed.state === 'pass' || parsed.state === 'needs_more' ? parsed.state : 'unclear';
+
+    verdict = {
+      state,
+      reason: (parsed.reason ?? '').slice(0, 300) || 'Thanks — sending this to your parent.',
+      followUp: parsed.followUp ? parsed.followUp.slice(0, 300) : null,
+      checkedAt: Date.now(),
+      agentId: agent.id,
+      model: MODEL,
     };
-    const text = payload.candidates?.[0]?.content?.parts?.map((p) => p.text ?? '').join('') ?? '';
-    const lines = text
-      .split('\n')
-      .map((l) => l.replace(/^[\s\-*\d.)]+/, '').trim())
-      .filter(Boolean);
+  } catch (error) {
+    // A model outage must never block a child. Fall through to the parent.
+    logger.error('Verifier failed', { taskId, error: String(error) });
+    verdict = {
+      state: 'unclear',
+      reason: "I couldn't check this one — your parent will take a look.",
+      followUp: null,
+      checkedAt: Date.now(),
+      agentId: agent.id,
+      model: MODEL,
+    };
+  }
 
-    return { lines: kind === 'encourage' ? lines.slice(0, 1) : lines.slice(0, 5) };
-  },
-);
+  await taskRef.update({
+    evidence: evidence || null,
+    agentVerdict: verdict,
+    verifyAttempts: FieldValue.increment(1),
+  });
+
+  return { verdict };
+});
+
+/** Text-only agents: the chore planner and the encouragement coach. */
+export const runAgent = onCall({ secrets: [GEMINI_API_KEY] }, async (request) => {
+  const agentId = String(request.data?.agentId ?? '');
+  const agent = AGENTS[agentId];
+  if (!agent || agentId === 'chore_verifier') {
+    throw new HttpsError('invalid-argument', 'Unknown agent.');
+  }
+
+  await enforceCallerPolicy(request, agent.caller, request.data?.householdId);
+
+  const prompt = String(request.data?.prompt ?? '').slice(0, 800);
+  const text = await generate({
+    apiKey: GEMINI_API_KEY.value(),
+    system: agent.system,
+    user: prompt,
+    temperature: 0.9,
+  });
+
+  const lines = text
+    .split('\n')
+    .map((l) => l.replace(/^[\s\-*\d.)]+/, '').trim())
+    .filter(Boolean);
+
+  return { lines: agentId === 'coach' ? lines.slice(0, 1) : lines.slice(0, 5) };
+});

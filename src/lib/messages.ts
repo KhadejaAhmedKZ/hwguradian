@@ -3,6 +3,7 @@
 export type ExtMessage =
   | { type: 'CHECK_RECENT_BLOCKED_ACTIVITY' }
   | { type: 'RESYNC' }
+  | { type: 'FLUSH_USAGE' }
   | { type: 'REQUEST_DOMAIN_PERMISSIONS'; domains: string[] };
 
 export type ExtResponse =

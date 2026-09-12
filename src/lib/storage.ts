@@ -1,6 +1,6 @@
 // Everything this extension keeps on the device. Deliberately short.
 
-import type { Task } from '@shared/types';
+import type { GatePolicy, Task } from '@shared/types';
 
 export interface CachedState {
   householdId: string | null;
@@ -8,7 +8,11 @@ export interface CachedState {
   childName: string | null;
   blockedDomains: string[];
   openTasks: Pick<Task, 'id' | 'title' | 'pointsValue' | 'status'>[];
+  /** True when the gate should be closed, per the household's gate policy. */
   anyPending: boolean;
+  gatePolicy: GatePolicy;
+  screenTimeEnabled: boolean;
+  timezone: string;
   updatedAt: number;
 }
 
@@ -25,6 +29,9 @@ const DEFAULT_STATE: CachedState = {
   blockedDomains: [],
   openTasks: [],
   anyPending: false,
+  gatePolicy: 'parent_only',
+  screenTimeEnabled: false,
+  timezone: 'UTC',
   updatedAt: 0,
 };
 
